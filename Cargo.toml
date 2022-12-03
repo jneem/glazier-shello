@@ -5,8 +5,7 @@ edition = "2021"
 
 [dependencies]
 glazier = { git = "https://github.com/linebender/glazier" }
-piet-gpu-hal = { git = "https://github.com/linebender/piet-gpu" }
-piet-gpu = { git = "https://github.com/linebender/piet-gpu" }
+piet-wgsl = { git = "https://github.com/linebender/piet-gpu" }
 piet-scene = { git = "https://github.com/linebender/piet-gpu" }
 raw-window-handle = "0.5"
 png = "0.16.2"
@@ -15,6 +14,7 @@ roxmltree = "0.13"
 swash = "0.1.4"
 bytemuck = { version = "1.7.2", features = ["derive"] }
 parley = { git = "https://github.com/dfrg/parley" }
+pollster = "0.2.5"
 
 [patch."https://github.com/dfrg/fount"]
 fount = { git = "https://github.com/jneem/fount" }

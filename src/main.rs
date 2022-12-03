@@ -1,14 +1,14 @@
-mod render;
-mod test_scenes;
-mod text;
+mod test_scene;
 
 use glazier::kurbo::Size;
 use glazier::{
     Application, Cursor, FileDialogToken, FileInfo, IdleToken, KeyEvent, MouseEvent, Region,
-    Scalable, TimerToken, WinHandler, WindowHandle,
+    TimerToken, WinHandler, WindowHandle,
 };
 use parley::FontContext;
 use piet_scene::Scene;
+use piet_wgsl::util::{RenderContext, RenderSurface};
+use piet_wgsl::Renderer;
 use std::any::Any;
 
 const WIDTH: usize = 2048;
@@ -27,20 +27,25 @@ fn main() {
 
 struct WindowState {
     handle: WindowHandle,
-    pgpu_state: Option<render::PgpuState>,
+    render: RenderContext,
+    surface: Option<RenderSurface>,
     scene: Scene,
+    size: Size,
     font_context: FontContext,
     counter: u64,
 }
 
 impl WindowState {
     pub fn new() -> Self {
+        let render = pollster::block_on(RenderContext::new()).unwrap();
         Self {
             handle: Default::default(),
-            pgpu_state: None,
+            surface: None,
+            render,
             scene: Default::default(),
             font_context: FontContext::new(),
             counter: 0,
+            size: Size::new(800.0, 600.0),
         }
     }
 
@@ -57,26 +62,43 @@ impl WindowState {
         self.handle.invalidate();
     }
 
+    fn new_surface(&mut self) {
+        self.surface = Some(self.render.create_surface(
+            &self.handle,
+            self.size.width as u32,
+            self.size.height as u32,
+        ));
+    }
+
     fn render(&mut self) {
-        if self.pgpu_state.is_none() {
-            let handle = &self.handle;
-            let scale = handle.get_scale().unwrap();
-            let insets = handle.content_insets().to_px(scale);
-            let mut size = handle.get_size().to_px(scale);
-            size.width -= insets.x_value();
-            size.height -= insets.y_value();
-            println!("render size: {:?}", size);
-            self.pgpu_state = Some(
-                render::PgpuState::new(handle, handle, size.width as usize, size.height as usize)
-                    .unwrap(),
-            );
+        let width = self.size.width as u32;
+        let height = self.size.height as u32;
+        if self.surface.is_none() {
+            self.new_surface();
         }
-        if let Some(pgpu_state) = self.pgpu_state.as_mut() {
-            if let Some(_timestamps) = pgpu_state.pre_render() {}
-            test_scenes::render(&mut self.font_context, &mut self.scene, 0, self.counter);
-            self.counter += 1;
-            pgpu_state.render(&self.scene);
-        }
+
+        let mut renderer = Renderer::new(&self.render.device).unwrap();
+        test_scene::render_anim_frame(&mut self.scene, &mut self.font_context, self.counter);
+        self.counter += 1;
+
+        let surface_texture = self
+            .surface
+            .as_ref()
+            .unwrap()
+            .surface
+            .get_current_texture()
+            .unwrap();
+        renderer
+            .render_to_surface(
+                &self.render.device,
+                &self.render.queue,
+                &self.scene,
+                &surface_texture,
+                width,
+                height,
+            )
+            .unwrap();
+        surface_texture.present();
     }
 }
 
@@ -98,7 +120,7 @@ impl WinHandler for WindowState {
         self.schedule_render();
     }
 
-    fn command(&mut self, id: u32) {}
+    fn command(&mut self, _id: u32) {}
 
     fn open_file(&mut self, _token: FileDialogToken, file_info: Option<FileInfo>) {
         println!("open file result: {:?}", file_info);
@@ -121,7 +143,7 @@ impl WinHandler for WindowState {
         println!("mouse_wheel {:?}", event);
     }
 
-    fn mouse_move(&mut self, event: &MouseEvent) {
+    fn mouse_move(&mut self, _event: &MouseEvent) {
         self.handle.set_cursor(&Cursor::Arrow);
         //println!("mouse_move {:?}", event);
     }
@@ -139,7 +161,8 @@ impl WinHandler for WindowState {
     }
 
     fn size(&mut self, size: Size) {
-        //self.size = size;
+        self.size = size;
+        self.new_surface();
     }
 
     fn got_focus(&mut self) {
